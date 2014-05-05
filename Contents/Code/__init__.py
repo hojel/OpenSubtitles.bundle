@@ -5,6 +5,9 @@ OS_API = 'http://plexapp.api.opensubtitles.org/xml-rpc'
 OS_LANGUAGE_CODES = 'http://www.opensubtitles.org/addons/export_languages.php'
 OS_PLEX_USERAGENT = 'plexapp.com v9.0'
 subtitleExt       = ['utf','utf8','utf-8','sub','srt','smi','rt','ssa','aqt','jss','ass','idx']
+
+RE_IMDB_ID = Regex('^tt(\d+)$')
+TVDB_SERIES_INFO = 'http://thetvdb.plexapp.com/data/series/%s'
  
 def Start():
   HTTP.CacheTime = CACHE_1DAY
@@ -64,45 +67,54 @@ def fetchSubtitles(proxy, token, part, imdbID=''):
         part.subtitles[Locale.Language.Match(st['SubLanguageID'])][subUrl] = Proxy.Media(subData, ext=st['SubFormat'])
     else:
       Log('No subtitles available for language ' + l)
-  
+
+def TvdbId_to_ImdbId(tvdb_id):
+  try:
+    xml = XML.ElementFromURL(TVDB_SERIES_INFO % tvdb_id)
+    imdb_id = xml.xpath('/Data/Series/IMDB_ID')[0].text
+  except:
+    imdb_id = ''
+  return imdb_id[2:] if RE_IMDB_ID.search(imdb_id) else ''
+
 class OpenSubtitlesAgentMovies(Agent.Movies):
   name = 'OpenSubtitles.org'
   languages = [Locale.Language.NoLanguage]
   primary_provider = False
-  contributes_to = ['com.plexapp.agents.imdb']
+  #contributes_to = ['com.plexapp.agents.imdb']
   
   def search(self, results, media, lang):
     Log(media.primary_metadata.id)
-    Log(media.primary_metadata.id.split('tt')[1].split('?')[0])
     results.Append(MetadataSearchResult(
-      id    = media.primary_metadata.id.split('tt')[1].split('?')[0],
+      id    = media.primary_metadata.id,
       score = 100
     ))
     
   def update(self, metadata, media, lang):
     (proxy, token) = opensubtitlesProxy()
+    imdb_id = metadata.id[2:] if RE_IMDB_ID.search(metadata.id) else ''
     for i in media.items:
       for part in i.parts:
-        fetchSubtitles(proxy, token, part, metadata.id)
+        fetchSubtitles(proxy, token, part, imdb_id)
 
 class OpenSubtitlesAgentTV(Agent.TV_Shows):
   name = 'OpenSubtitles.org'
   languages = [Locale.Language.NoLanguage]
   primary_provider = False
-  contributes_to = ['com.plexapp.agents.thetvdb']
+  #contributes_to = ['com.plexapp.agents.thetvdb']
 
   def search(self, results, media, lang):
     results.Append(MetadataSearchResult(
-      id    = 'null',
+      id    = media.primary_metadata.id,
       score = 100
     ))
 
   def update(self, metadata, media, lang):
     (proxy, token) = opensubtitlesProxy()
+    imdb_id = TvdbId_to_ImdbId(metadata.id)
     for s in media.seasons:
       # just like in the Local Media Agent, if we have a date-based season skip for now.
       if int(s) < 1900:
         for e in media.seasons[s].episodes:
           for i in media.seasons[s].episodes[e].items:
             for part in i.parts:
-              fetchSubtitles(proxy, token, part)
+              fetchSubtitles(proxy, token, part, imdb_id)
